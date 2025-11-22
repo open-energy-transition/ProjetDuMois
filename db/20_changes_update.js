@@ -25,7 +25,7 @@ const pgPool = new Pool({
     connectionString: `${process.env.DB_URL}`
 });
 
-function macroChangesCsv (mode, project, oplProject, csvFeatures, csvUsers, csvMembers = null, start_ts = null, end_ts = null){
+function macroChangesCsv (mode, project, filterFeatures, oplProject, csvFeatures, csvUsers, csvMembers = null, start_ts = null, end_ts = null){
     const slug = project.name.split("_").pop();
     const features_table = `pdm_features_${slug}`;
     const members_table = `pdm_members_${slug}`;
@@ -123,10 +123,13 @@ function macroChangesCsv (mode, project, oplProject, csvFeatures, csvUsers, csvM
         script += `
         echo "  [\$((\$(date -d now +%s) - \$process_start_t0))s] Building geometries of ways"
         ${PSQL} -v features_table="${features_table_geom}" -v features_perm_table="${features_table}" -v members_table="${members_table}" -v start_date="'${start_ts}'" -f "${__dirname}/26_changes_geom_ways.sql"
-
-        echo "  [\$((\$(date -d now +%s) - \$process_start_t0))s] Building geometries of relations"
-        ${PSQL} -v features_table="${features_table_geom}" -v features_perm_table="${features_table}" -v members_table="${members_table}" -v start_date="'${start_ts}'" -f "${__dirname}/26_changes_geom_rels.sql"
         `;
+        if (filterFeatures.indexOf("r") > -1){
+            script += `
+            echo "  [\$((\$(date -d now +%s) - \$process_start_t0))s] Building geometries of relations"
+            ${PSQL} -v features_table="${features_table_geom}" -v features_perm_table="${features_table}" -v members_table="${members_table}" -v start_date="'${start_ts}'" -f "${__dirname}/26_changes_geom_rels.sql"
+            `;
+        }
     }
 
     script += `
@@ -398,7 +401,7 @@ Object.values(projects).forEach(project => {
         osmium getid ${getIdOptions} "\$history_osh" -I "${oshProjectTags}" -f opl,history=true -o "${oplProject}"
         rm -f "${csvFeatures}" "${csvMembers}" "${oshProjectTags}"
 
-        ${macroChangesCsv ("init", project, oplProject, csvFeatures, csvUsers, csvMembers, "\$process_start_ts", "\$process_end_tss")}
+        ${macroChangesCsv ("init", project, tagFilterFeatures, oplProject, csvFeatures, csvUsers, csvMembers, "\$process_start_ts", "\$process_end_tss")}
 
         ${PSQL} -c "UPDATE pdm_projects SET changes_lastupdate_date='\${process_end_ts}', counts_lastupdate_date=NULL WHERE project_id=${project.id}"
         echo "== [\$((\$(date -d now +%s) - \$process_start_t0))s] Project ${project.name} initied. Errors may have occured upside."
@@ -576,7 +579,7 @@ Object.values(projects).forEach(project => {
             fi
             rm -f "${CSV_FEATURES_FS}" "${listKnownIds}" "${listCreatedIds}"
 
-            ${macroChangesCsv ("update", project, oplProject, csvFeatures, csvUsers, csvMembers, "\$project_start_ts", "\$project_end_ts")}
+            ${macroChangesCsv ("update", project, tagFilterFeatures, oplProject, csvFeatures, csvUsers, csvMembers, "\$project_start_ts", "\$project_end_ts")}
 
             ${PSQL} -c "UPDATE pdm_projects SET changes_lastupdate_date='\${project_end_ts}' WHERE project_id=${project.id}"
             echo "   => [\$((\$(date -d now +%s) - \$process_start_t0))s] Project update successful"
